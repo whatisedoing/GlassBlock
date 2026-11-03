@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Glass Block Map</title>
+<meta name="theme-color" content="#0e1d22">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+:root{
+  --ink:#0e1d22; --deep:#16303a; --frost:#e8f4f1; --aqua:#62d6c8; --aqua-d:#2a9d92;
+  --amber:#f0b44c; --line:rgba(232,244,241,.16); --muted:#9fb8b6;
+  --font:'Bricolage Grotesque',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0}
+body{background:var(--ink);color:var(--frost);font-family:var(--font);display:flex;flex-direction:column;
+  padding-top:env(safe-area-inset-top,0px)}
+button{font:inherit;color:inherit;cursor:pointer}
+.hidden{display:none!important}
+
+/* login */
+#login{flex:1;display:flex;flex-direction:column;justify-content:center;padding:28px;max-width:420px;width:100%;margin:0 auto}
+#login h1{font-size:34px;font-weight:800;margin:0 0 6px;letter-spacing:-.02em}
+#login p{color:var(--muted);margin:0 0 24px}
+input[type=text],input[type=email],input[type=password],textarea{
+  width:100%;padding:14px;border-radius:12px;border:1px solid var(--line);background:var(--deep);
+  color:var(--frost);font:inherit;font-size:16px;margin-bottom:12px}
+textarea{min-height:70px;resize:vertical}
+.primary{width:100%;padding:15px;border:0;border-radius:14px;background:var(--aqua);color:#08232a;font-weight:800;font-size:17px}
+.primary:disabled{opacity:.45}
+.err{color:#ff9d8f;min-height:22px;font-size:14px;margin:8px 0 0}
+
+/* app shell */
+#app{flex:1;display:flex;flex-direction:column;min-height:0}
+header{display:flex;justify-content:space-between;align-items:center;padding:12px 18px}
+header b{font-weight:800;letter-spacing:-.01em}
+header button{background:none;border:0;color:var(--muted);font-size:14px}
+#views{flex:1;position:relative;min-height:0}
+.view{position:absolute;inset:0}
+
+/* home */
+#view-home{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px;padding:20px}
+#tagBtn{
+  width:min(68vw,280px);aspect-ratio:1;border-radius:14%;border:1px solid rgba(255,255,255,.35);position:relative;
+  background:linear-gradient(145deg,rgba(150,240,230,.75),rgba(42,157,146,.45) 55%,rgba(20,90,100,.6));
+  box-shadow:inset 0 0 0 10px rgba(255,255,255,.07),inset 0 0 0 11px rgba(255,255,255,.28),
+             inset 10px 14px 30px rgba(255,255,255,.35),inset -14px -18px 34px rgba(0,40,50,.45),
+             0 24px 60px rgba(42,157,146,.35);
+  font-size:30px;font-weight:800;color:#f4fffd;text-shadow:0 2px 12px rgba(0,50,60,.5);
+  transition:transform .12s ease,box-shadow .12s ease;overflow:hidden}
+#tagBtn::before{content:"";position:absolute;top:-30%;left:-20%;width:70%;height:160%;
+  background:linear-gradient(100deg,transparent,rgba(255,255,255,.28),transparent);transform:rotate(12deg)}
+#tagBtn:active{transform:scale(.95)}
+#count{color:var(--muted);text-align:center;line-height:1.5}
+#count strong{color:var(--frost);font-size:20px}
+
+/* map */
+#map{position:absolute;inset:0;background:#cfe3e0}
+#locate{position:absolute;right:14px;bottom:14px;z-index:900;padding:11px 16px;border-radius:12px;border:0;
+  background:var(--ink);color:var(--frost);font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.35)}
+.gb-pin{width:26px;height:26px;border-radius:7px;border:2px solid #fff;
+  background:linear-gradient(145deg,#a8f3ea,#2a9d92);box-shadow:0 3px 10px rgba(0,0,0,.45),inset 0 0 0 3px rgba(255,255,255,.25)}
+.me-dot{width:16px;height:16px;border-radius:50%;background:var(--amber);border:3px solid #fff;box-shadow:0 0 0 6px rgba(240,180,76,.3)}
+
+/* nav */
+nav{display:flex;background:var(--deep);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px);z-index:1500}
+nav button{flex:1;padding:16px 0;background:none;border:0;color:var(--muted);font-weight:600;font-size:16px}
+nav button.on{color:var(--aqua)}
+
+/* sheets */
+.backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2000;opacity:0;pointer-events:none;transition:opacity .2s}
+.backdrop.open{opacity:1;pointer-events:auto}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:2100;background:var(--deep);border-radius:24px 24px 0 0;
+  max-height:90dvh;overflow-y:auto;padding:20px 20px calc(24px + env(safe-area-inset-bottom,0px));
+  transform:translateY(105%);transition:transform .25s ease;max-width:560px;margin:0 auto}
+.sheet.open{transform:translateY(0)}
+.sheet h2{margin:0 0 4px;font-size:24px;font-weight:800;letter-spacing:-.01em}
+.status{font-size:14px;color:var(--amber);margin-bottom:16px}
+.status.ok{color:var(--aqua)}
+.field{margin-bottom:16px}
+.field>label,.field>span{display:block;font-size:14px;color:var(--muted);margin-bottom:8px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{padding:10px 14px;border-radius:999px;border:1px solid var(--line);background:transparent;font-size:15px}
+.chip.on{background:var(--aqua);border-color:var(--aqua);color:#08232a;font-weight:600}
+.photo-btn{display:block;width:100%;padding:14px;border-radius:12px;border:1px dashed var(--aqua-d);text-align:center;color:var(--aqua);background:none;font-weight:600}
+#photoPreview{width:100%;max-height:220px;object-fit:cover;border-radius:12px;margin-top:10px}
+.row{display:flex;gap:10px}
+.ghost{flex:0 0 auto;padding:15px 18px;border-radius:14px;border:1px solid var(--line);background:none;font-weight:600}
+.danger{color:#ff9d8f}
+#detailPhoto{width:100%;border-radius:14px;margin:10px 0 14px;display:block}
+dl{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;margin:0 0 16px}
+dt{color:var(--muted)} dd{margin:0}
+#toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%) translateY(20px);background:var(--frost);color:var(--ink);
+  padding:12px 18px;border-radius:12px;font-weight:600;z-index:3000;opacity:0;transition:.25s;pointer-events:none;max-width:86vw;text-align:center}
+#toast.show{opacity:1;transform:translateX(-50%)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<section id="login" class="hidden">
+  <h1>Glass Block Map</h1>
+  <p>Sign in to start tagging.</p>
+  <form id="loginForm">
+    <input id="email" type="email" placeholder="Email" autocomplete="username" required>
+    <input id="password" type="password" placeholder="Password" autocomplete="current-password" required>
+    <button class="primary" type="submit" id="loginBtn">Sign in</button>
+    <div class="err" id="loginErr"></div>
+  </form>
+</section>
+
+<!-- NAME (first sign-in only) -->
+<section id="nameBox" class="hidden" style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:28px;max-width:420px;width:100%;margin:0 auto">
+  <h1 style="font-size:30px;font-weight:800;margin:0 0 6px">What should we call you?</h1>
+  <p style="color:var(--muted);margin:0 0 20px">This name appears on the tags you add.</p>
+  <input id="nameInput" type="text" placeholder="Your name" maxlength="30">
+  <button class="primary" id="nameSave">Continue</button>
+</section>
+
+<!-- APP -->
+<div id="app" class="hidden">
+  <header><b>Glass Block Map</b><button id="signOut">Sign out</button></header>
+  <div id="views">
+    <section class="view" id="view-home">
+      <button id="tagBtn">Tag a block</button>
+      <div id="count"></div>
+    </section>
+    <section class="view hidden" id="view-map">
+      <div id="map"></div>
+      <button id="locate">Locate me</button>
+    </section>
+  </div>
+  <nav>
+    <button id="navHome" class="on">Tag</button>
+    <button id="navMap">Map</button>
+  </nav>
+</div>
+
+<!-- TAG SHEET -->
+<div class="backdrop" id="tagBackdrop"></div>
+<div class="sheet" id="tagSheet">
+  <h2>New glass block</h2>
+  <div class="status" id="gpsStatus">Finding your location…</div>
+  <div class="field"><span>Type</span><div class="chips" data-field="block_type"></div></div>
+  <div class="field"><span>Colour</span><div class="chips" data-field="colour"></div></div>
+  <div class="field"><span>Building</span><div class="chips" data-field="building_type"></div></div>
+  <div class="field">
+    <button type="button" class="photo-btn" id="photoBtn">Add a photo</button>
+    <input type="file" id="photoInput" accept="image/*" capture="environment" class="hidden">
+    <img id="photoPreview" class="hidden" alt="Photo preview">
+  </div>
+  <div class="field"><textarea id="notes" placeholder="Notes (optional)"></textarea></div>
+  <div class="row">
+    <button class="ghost" id="tagCancel">Cancel</button>
+    <button class="primary" id="tagSave" disabled>Save tag</button>
+  </div>
+</div>
+
+<!-- DETAIL SHEET -->
+<div class="backdrop" id="detailBackdrop"></div>
+<div class="sheet" id="detailSheet">
+  <h2 id="detailTitle">Glass block</h2>
+  <img id="detailPhoto" class="hidden" alt="Glass block photo">
+  <dl id="detailList"></dl>
+  <div class="row">
+    <button class="ghost danger" id="detailDelete">Delete</button>
+    <button class="primary" id="detailClose">Close</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const SUPABASE_URL = "https://prdylxlscsmsndxrwzpk.supabase.co";
+const SUPABASE_KEY = "sb_publishable_nXCSUQXO1kClzVR4l4l1kQ_pAokhVV4";
+const START_VIEW = { lat: 49.8951, lng: -97.1384, zoom: 12 }; // Winnipeg, used when nothing is tagged yet
+
+const OPTIONS = {
+  block_type: ["Clear", "Wave", "Cross-ribbed", "Frosted", "Vented", "Other"],
+  colour: ["Clear", "Blue", "Green", "Amber", "White / frosted", "Other"],
+  building_type: ["Residential", "Commercial", "Public / other"]
+};
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+let user = null, myName = "", map = null, markerLayer = null, meMarker = null;
+let rows = [], current = null, here = null, photoBlob = null, picked = {};
+
+function toast(msg){
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 2600);
+}
+
+/* ---------- sign-in ---------- */
+function show(id){ ["login","nameBox","app"].forEach(x => $(x).classList.toggle("hidden", x !== id)); }
+
+async function route(){
+  const { data } = await sb.auth.getSession();
+  user = data.session ? data.session.user : null;
+  if (!user) return show("login");
+  myName = (user.user_metadata && user.user_metadata.name) || "";
+  if (!myName) return show("nameBox");
+  show("app");
+  refreshCount();
+}
+
+$("loginForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  $("loginBtn").disabled = true; $("loginErr").textContent = "";
+  const { error } = await sb.auth.signInWithPassword({ email: $("email").value.trim(), password: $("password").value });
+  $("loginBtn").disabled = false;
+  if (error) { $("loginErr").textContent = "Couldn't sign in. Check your email and password."; return; }
+  route();
+});
+
+$("nameSave").addEventListener("click", async () => {
+  const n = $("nameInput").value.trim();
+  if (!n) return;
+  const { error } = await sb.auth.updateUser({ data: { name: n } });
+  if (error) { toast("Couldn't save your name. Try again."); return; }
+  route();
+});
+
+$("signOut").addEventListener("click", async () => { await sb.auth.signOut(); route(); });
+
+/* ---------- navigation ---------- */
+function showView(name){
+  $("view-home").classList.toggle("hidden", name !== "home");
+  $("view-map").classList.toggle("hidden", name !== "map");
+  $("navHome").classList.toggle("on", name === "home");
+  $("navMap").classList.toggle("on", name === "map");
+  if (name === "map") openMap();
+  else refreshCount();
+}
+$("navHome").onclick = () => showView("home");
+$("navMap").onclick = () => showView("map");
+
+async function refreshCount(){
+  const { count } = await sb.from("glass_blocks").select("id", { count: "exact", head: true });
+  $("count").innerHTML = count == null ? "" : `<strong>${count}</strong><br>${count === 1 ? "block" : "blocks"} found so far`;
+}
+
+/* ---------- tagging ---------- */
+function buildChips(){
+  document.querySelectorAll(".chips").forEach(box => {
+    const f = box.dataset.field;
+    box.innerHTML = OPTIONS[f].map(o => `<button type="button" class="chip" data-v="${esc(o)}">${esc(o)}</button>`).join("");
+    box.onclick = e => {
+      const b = e.target.closest(".chip"); if (!b) return;
+      const was = b.classList.contains("on");
+      box.querySelectorAll(".chip").forEach(c => c.classList.remove("on"));
+      if (!was) { b.classList.add("on"); picked[f] = b.dataset.v; } else { delete picked[f]; }
+    };
+  });
+}
+
+function openSheet(name){ $(name + "Backdrop").classList.add("open"); $(name + "Sheet").classList.add("open"); }
+function closeSheet(name){ $(name + "Backdrop").classList.remove("open"); $(name + "Sheet").classList.remove("open"); }
+
+$("tagBtn").addEventListener("click", () => {
+  here = null; photoBlob = null; picked = {};
+  buildChips();
+  $("notes").value = ""; $("photoInput").value = "";
+  $("photoPreview").classList.add("hidden"); $("photoBtn").textContent = "Add a photo";
+  $("tagSave").disabled = true;
+  setStatus("Finding your location…", false);
+  openSheet("tag");
+  if (!navigator.geolocation) return setStatus("This browser can't share location.", false);
+  navigator.geolocation.getCurrentPosition(pos => {
+    here = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+    setStatus(`Location locked (within ${Math.round(pos.coords.accuracy)} m)`, true);
+    $("tagSave").disabled = false;
+  }, err => {
+    setStatus(err.code === 1 ? "Location is blocked. Allow location for this site in your browser settings, then try again."
+                              : "Couldn't get your location. Step outside or try again.", false);
+  }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+});
+
+function setStatus(t, ok){ const s = $("gpsStatus"); s.textContent = t; s.classList.toggle("ok", !!ok); }
+
+$("tagCancel").onclick = () => closeSheet("tag");
+$("tagBackdrop").onclick = () => closeSheet("tag");
+$("photoBtn").onclick = () => $("photoInput").click();
+$("photoInput").addEventListener("change", async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    photoBlob = await shrink(f);
+    $("photoPreview").src = URL.createObjectURL(photoBlob);
+    $("photoPreview").classList.remove("hidden");
+    $("photoBtn").textContent = "Change photo";
+  } catch (err) { toast("Couldn't read that photo."); }
+});
+
+async function shrink(file){
+  const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+  const s = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+  const c = document.createElement("canvas");
+  c.width = Math.round(bmp.width * s); c.height = Math.round(bmp.height * s);
+  c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+  return new Promise((res, rej) => c.toBlob(b => b ? res(b) : rej(), "image/jpeg", 0.82));
+}
+
+$("tagSave").addEventListener("click", async () => {
+  if (!here) return;
+  $("tagSave").disabled = true; $("tagSave").textContent = "Saving…";
+  try {
+    let photo_path = null;
+    if (photoBlob) {
+      photo_path = `${user.id}/${crypto.randomUUID()}.jpg`;
+      const up = await sb.storage.from("photos").upload(photo_path, photoBlob, { contentType: "image/jpeg" });
+      if (up.error) throw up.error;
+    }
+    const { error } = await sb.from("glass_blocks").insert({
+      tagged_by: myName, lat: here.lat, lng: here.lng,
+      block_type: picked.block_type || null, colour: picked.colour || null,
+      building_type: picked.building_type || null,
+      notes: $("notes").value.trim() || null, photo_path
+    });
+    if (error) throw error;
+    closeSheet("tag"); toast("Tagged!"); refreshCount();
+  } catch (err) {
+    console.error(err); toast("Couldn't save. Check your connection and try again.");
+  }
+  $("tagSave").textContent = "Save tag"; $("tagSave").disabled = false;
+});
+
+/* ---------- map ---------- */
+async function openMap(){
+  if (!map) {
+    map = L.map("map", { zoomControl: true }).setView([START_VIEW.lat, START_VIEW.lng], START_VIEW.zoom);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }).addTo(map);
+    markerLayer = L.layerGroup().addTo(map);
+  }
+  setTimeout(() => map.invalidateSize(), 50);
+  const { data, error } = await sb.from("glass_blocks").select("*").order("created_at", { ascending: false });
+  if (error) { toast("Couldn't load the tags."); return; }
+  rows = data; markerLayer.clearLayers();
+  const pts = [];
+  rows.forEach(r => {
+    const m = L.marker([r.lat, r.lng], { icon: L.divIcon({ className: "", html: '<div class="gb-pin"></div>', iconSize: [26, 26], iconAnchor: [13, 13] }) });
+    m.on("click", () => openDetail(r));
+    m.addTo(markerLayer); pts.push([r.lat, r.lng]);
+  });
+  if (pts.length) map.fitBounds(pts, { padding: [50, 50], maxZoom: 17 });
+}
+
+$("locate").addEventListener("click", () => {
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(p => {
+    const ll = [p.coords.latitude, p.coords.longitude];
+    if (meMarker) meMarker.remove();
+    meMarker = L.marker(ll, { icon: L.divIcon({ className: "", html: '<div class="me-dot"></div>', iconSize: [16, 16], iconAnchor: [8, 8] }) }).addTo(map);
+    map.setView(ll, Math.max(map.getZoom(), 16));
+  }, () => toast("Couldn't get your location."), { enableHighAccuracy: true, timeout: 15000 });
+});
+
+async function openDetail(r){
+  current = r;
+  const when = new Date(r.created_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+  $("detailTitle").textContent = "Glass block";
+  const items = [["Tagged by", r.tagged_by], ["When", when], ["Type", r.block_type], ["Colour", r.colour], ["Building", r.building_type], ["Notes", r.notes]];
+  $("detailList").innerHTML = items.filter(i => i[1]).map(i => `<dt>${esc(i[0])}</dt><dd>${esc(i[1])}</dd>`).join("") +
+    `<dt>Place</dt><dd><a style="color:var(--aqua)" target="_blank" rel="noopener" href="https://www.google.com/maps?q=${r.lat},${r.lng}">Open in Maps</a></dd>`;
+  const img = $("detailPhoto"); img.classList.add("hidden"); img.removeAttribute("src");
+  openSheet("detail");
+  if (r.photo_path) {
+    const { data } = await sb.storage.from("photos").createSignedUrl(r.photo_path, 3600);
+    if (data && current === r) { img.src = data.signedUrl; img.classList.remove("hidden"); }
+  }
+}
+$("detailClose").onclick = () => closeSheet("detail");
+$("detailBackdrop").onclick = () => closeSheet("detail");
+$("detailDelete").addEventListener("click", async () => {
+  if (!current || !confirm("Delete this tag? This can't be undone.")) return;
+  if (current.photo_path) await sb.storage.from("photos").remove([current.photo_path]);
+  const { error } = await sb.from("glass_blocks").delete().eq("id", current.id);
+  if (error) { toast("Couldn't delete it."); return; }
+  closeSheet("detail"); toast("Deleted"); openMap();
+});
+
+sb.auth.onAuthStateChange(() => {});
+route();
+</script>
+</body>
+</html>
