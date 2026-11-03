@@ -46,7 +46,7 @@ header button{background:none;border:0;color:var(--muted);font-size:14px}
 .view{position:absolute;inset:0}
 
 /* home */
-#view-home{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px;padding:20px}
+#view-home{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;padding:20px}
 #tagBtn{
   width:min(68vw,280px);aspect-ratio:1;border-radius:14%;border:1px solid rgba(255,255,255,.35);position:relative;
   background:linear-gradient(145deg,rgba(150,240,230,.75),rgba(42,157,146,.45) 55%,rgba(20,90,100,.6));
@@ -79,6 +79,21 @@ header button{background:none;border:0;color:var(--muted);font-size:14px}
 #moveBar span{flex:1;font-size:14px;line-height:1.25}
 #moveBar button{padding:9px 14px;border-radius:10px;border:1px solid var(--line);background:none}
 #moveDone{background:var(--aqua)!important;color:#08232a;border-color:var(--aqua)!important;font-weight:700}
+#view-list{display:flex;flex-direction:column}
+#listTabs{padding:4px 16px 12px}
+.tablewrap{flex:1;overflow:auto;padding:0 8px 8px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{position:sticky;top:0;background:var(--ink);text-align:left;color:var(--muted);font-weight:600;padding:10px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:13px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+td.notes{max-width:170px;overflow:hidden;text-overflow:ellipsis}
+tr.r:active{background:var(--deep)}
+.empty{padding:40px 16px;text-align:center;color:var(--muted)}
+#score{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
+.sc{min-width:110px;padding:14px 18px;border-radius:16px;border:1px solid var(--line);background:var(--deep);text-align:center}
+.sc.lead{border-color:var(--aqua);box-shadow:inset 0 0 0 1px var(--aqua)}
+.sc.lead .sc-n{color:var(--aqua)}
+.sc-n{font-size:30px;font-weight:800;line-height:1.1}
+.sc-name{color:var(--muted);font-size:14px;margin-top:2px}
 .me-dot{width:16px;height:16px;border-radius:50%;background:var(--amber);border:3px solid #fff;box-shadow:0 0 0 6px rgba(240,180,76,.3)}
 
 /* nav */
@@ -144,16 +159,22 @@ dt{color:var(--muted)} dd{margin:0}
     <section class="view" id="view-home">
       <button id="tagBtn">Tag a block</button>
       <div id="count"></div>
+      <div id="score"></div>
     </section>
     <section class="view hidden" id="view-map">
       <div id="map"></div>
       <div id="moveBar" class="hidden"><span>Drag the pin or tap the map</span><button id="moveCancel">Cancel</button><button id="moveDone">Done</button></div>
       <button id="locate">Locate me</button>
     </section>
+    <section class="view hidden" id="view-list">
+      <div class="chips" id="listTabs"></div>
+      <div class="tablewrap"><table id="tbl"></table></div>
+    </section>
   </div>
   <nav>
     <button id="navHome" class="on">Tag</button>
     <button id="navMap">Map</button>
+    <button id="navList">List</button>
   </nav>
 </div>
 
@@ -258,26 +279,77 @@ $("nameSave").addEventListener("click", async () => {
 
 $("signOut").addEventListener("click", async () => { await sb.auth.signOut(); route(); });
 
-/* ---------- navigation ---------- */
+/* ---------- navigation & data ---------- */
 function showView(name){
-  $("view-home").classList.toggle("hidden", name !== "home");
-  $("view-map").classList.toggle("hidden", name !== "map");
-  $("navHome").classList.toggle("on", name === "home");
-  $("navMap").classList.toggle("on", name === "map");
-  if (name === "map") openMap();
-  else refreshCount();
+  ["home", "map", "list"].forEach(v => {
+    $("view-" + v).classList.toggle("hidden", name !== v);
+    $("nav" + v[0].toUpperCase() + v.slice(1)).classList.toggle("on", name === v);
+  });
+  if (name === "map") { ensureMap(); refreshAll(true); }
+  else refreshAll(false);
 }
 $("navHome").onclick = () => showView("home");
 $("navMap").onclick = () => showView("map");
+$("navList").onclick = () => showView("list");
 
-async function refreshCount(){
-  const { count } = await sb.from("glass_blocks").select("id", { count: "exact", head: true });
-  $("count").innerHTML = count == null ? "" : `<strong>${count}</strong><br>${count === 1 ? "block" : "blocks"} found so far`;
+async function loadRows(){
+  const { data, error } = await sb.from("glass_blocks").select("*").order("created_at", { ascending: false });
+  if (error) { toast("Couldn't load the tags."); return false; }
+  rows = data; return true;
 }
+async function refreshAll(fit){
+  if (!(await loadRows())) return;
+  renderScore(); renderList();
+  if (map) renderMarkers(fit);
+}
+function refreshCount(){ return refreshAll(false); }
+
+function renderScore(){
+  const counts = {};
+  rows.forEach(r => { counts[r.tagged_by] = (counts[r.tagged_by] || 0) + 1; });
+  if (myName && !(myName in counts)) counts[myName] = 0;
+  const arr = Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const top = arr.length > 1 && arr[0][1] > arr[1][1] ? arr[0][0] : null;
+  $("count").innerHTML = `<strong>${rows.length}</strong><br>${rows.length === 1 ? "block" : "blocks"} found so far`;
+  $("score").innerHTML = arr.slice(0, 4).map(([n, c]) =>
+    `<div class="sc${n === top ? " lead" : ""}"><div class="sc-n">${c}</div><div class="sc-name">${esc(n)}</div></div>`).join("");
+}
+
+/* ---------- list ---------- */
+let listFilter = "All";
+const fmtWhen = iso => {
+  const d = new Date(iso), o = { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" };
+  if (d.getFullYear() !== new Date().getFullYear()) o.year = "numeric";
+  return d.toLocaleString([], o);
+};
+function renderList(){
+  const names = [...new Set(rows.map(r => r.tagged_by))]
+    .sort((a, b) => a === myName ? -1 : b === myName ? 1 : a.localeCompare(b));
+  if (listFilter !== "All" && !names.includes(listFilter)) listFilter = "All";
+  $("listTabs").innerHTML = ["All", ...names].map(t => {
+    const n = t === "All" ? rows.length : rows.filter(r => r.tagged_by === t).length;
+    return `<button type="button" class="chip${t === listFilter ? " on" : ""}" data-t="${esc(t)}">${esc(t)} (${n})</button>`;
+  }).join("");
+  const list = listFilter === "All" ? rows : rows.filter(r => r.tagged_by === listFilter);
+  const by = listFilter === "All";
+  if (!list.length) { $("tbl").innerHTML = '<tr><td class="empty">No tags here yet.</td></tr>'; return; }
+  $("tbl").innerHTML = `<thead><tr><th>When</th>${by ? "<th>By</th>" : ""}<th>Type</th><th>Colour</th><th>Building</th><th>Photo</th><th>Notes</th></tr></thead><tbody>` +
+    list.map(r => `<tr class="r" data-id="${esc(r.id)}"><td>${esc(fmtWhen(r.created_at))}</td>${by ? `<td>${esc(r.tagged_by)}</td>` : ""}` +
+      `<td>${esc(r.block_type || "–")}</td><td>${esc(r.colour || "–")}</td><td>${esc(r.building_type || "–")}</td>` +
+      `<td>${r.photo_path ? "Yes" : "–"}</td><td class="notes">${esc(r.notes || "")}</td></tr>`).join("") + "</tbody>";
+}
+$("listTabs").addEventListener("click", e => {
+  const b = e.target.closest(".chip"); if (!b) return;
+  listFilter = b.dataset.t; renderList();
+});
+$("tbl").addEventListener("click", e => {
+  const tr = e.target.closest("tr[data-id]"); if (!tr) return;
+  const r = rows.find(x => x.id === tr.dataset.id); if (r) openDetail(r);
+});
 
 /* ---------- tagging ---------- */
 function buildChips(){
-  document.querySelectorAll(".chips").forEach(box => {
+  document.querySelectorAll("#tagSheet .chips").forEach(box => {
     const f = box.dataset.field;
     box.innerHTML = OPTIONS[f].map(o => `<button type="button" class="chip" data-v="${esc(o)}">${esc(o)}</button>`).join("");
     box.onclick = e => {
@@ -347,6 +419,7 @@ function openEdit(r){
 
 $("movePin").onclick = () => {
   closeSheet("tag");
+  if ($("view-map").classList.contains("hidden")) showView("map");
   moveMarker = L.marker([editLoc.lat, editLoc.lng], {
     draggable: true, zIndexOffset: 1000,
     icon: L.divIcon({ className: "", html: '<div class="gb-pin move"></div>', iconSize: [26, 26], iconAnchor: [13, 13] })
@@ -419,7 +492,7 @@ $("tagSave").addEventListener("click", async () => {
       if (error) throw error;
       if (!data || !data.length) throw new Error("No rows updated");
       if (photo_path && editing.photo_path) await sb.storage.from("photos").remove([editing.photo_path]);
-      closeSheet("tag"); toast("Changes saved"); editing = null; openMap(true);
+      closeSheet("tag"); toast("Changes saved"); editing = null; refreshAll(false);
     } else {
       const { error } = await sb.from("glass_blocks").insert({
         tagged_by: myName, lat: here.lat, lng: here.lng, ...fields, photo_path
@@ -434,7 +507,7 @@ $("tagSave").addEventListener("click", async () => {
 });
 
 /* ---------- map ---------- */
-async function openMap(keepView){
+function ensureMap(){
   if (!map) {
     map = L.map("map", { zoomControl: true }).setView([START_VIEW.lat, START_VIEW.lng], START_VIEW.zoom);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -443,16 +516,17 @@ async function openMap(keepView){
     markerLayer = L.layerGroup().addTo(map);
   }
   setTimeout(() => map.invalidateSize(), 50);
-  const { data, error } = await sb.from("glass_blocks").select("*").order("created_at", { ascending: false });
-  if (error) { toast("Couldn't load the tags."); return; }
-  rows = data; markerLayer.clearLayers();
+}
+
+function renderMarkers(fit){
+  markerLayer.clearLayers();
   const pts = [];
   rows.forEach(r => {
     const m = L.marker([r.lat, r.lng], { icon: L.divIcon({ className: "", html: '<div class="gb-pin"></div>', iconSize: [26, 26], iconAnchor: [13, 13] }) });
     m.on("click", () => { if (!moveMarker) openDetail(r); });
     m.addTo(markerLayer); pts.push([r.lat, r.lng]);
   });
-  if (pts.length && !keepView) map.fitBounds(pts, { padding: [50, 50], maxZoom: 17 });
+  if (fit && pts.length && !moveMarker) map.fitBounds(pts, { padding: [50, 50], maxZoom: 17 });
 }
 
 $("locate").addEventListener("click", () => {
@@ -487,7 +561,7 @@ $("detailDelete").addEventListener("click", async () => {
   if (current.photo_path) await sb.storage.from("photos").remove([current.photo_path]);
   const { error } = await sb.from("glass_blocks").delete().eq("id", current.id);
   if (error) { toast("Couldn't delete it."); return; }
-  closeSheet("detail"); toast("Deleted"); openMap(true);
+  closeSheet("detail"); toast("Deleted"); refreshAll(false);
 });
 
 sb.auth.onAuthStateChange(() => {});
