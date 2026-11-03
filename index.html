@@ -72,7 +72,9 @@ header button{background:none;border:0;color:var(--muted);font-size:14px}
 #locate{position:absolute;right:14px;bottom:14px;z-index:900;padding:11px 16px;border-radius:12px;border:0;
   background:var(--ink);color:var(--frost);font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.35)}
 .gb-pin{width:26px;height:26px;border-radius:7px;border:2px solid #fff;
-  background:linear-gradient(145deg,#a8f3ea,#2a9d92);box-shadow:0 3px 10px rgba(0,0,0,.45),inset 0 0 0 3px rgba(255,255,255,.25)}
+  background:var(--pc,#62d6c8);
+  background:linear-gradient(145deg,color-mix(in srgb,var(--pc,#62d6c8) 45%,#fff),var(--pc,#62d6c8));
+  box-shadow:0 3px 10px rgba(0,0,0,.45),inset 0 0 0 3px rgba(255,255,255,.25)}
 .gb-pin.move{background:linear-gradient(145deg,#ffd98a,#f0b44c)}
 #moveBar{position:absolute;top:12px;left:58px;right:12px;z-index:1000;display:flex;align-items:center;gap:8px;background:var(--ink);
   border:1px solid var(--line);border-radius:14px;padding:10px 12px;box-shadow:0 4px 16px rgba(0,0,0,.35)}
@@ -89,9 +91,19 @@ td.notes{max-width:170px;overflow:hidden;text-overflow:ellipsis}
 tr.r:active{background:var(--deep)}
 .empty{padding:40px 16px;text-align:center;color:var(--muted)}
 #score{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
-.sc{min-width:110px;padding:14px 18px;border-radius:16px;border:1px solid var(--line);background:var(--deep);text-align:center}
-.sc.lead{border-color:var(--aqua);box-shadow:inset 0 0 0 1px var(--aqua)}
-.sc.lead .sc-n{color:var(--aqua)}
+.sc{min-width:110px;padding:14px 18px;border-radius:16px;border:1px solid var(--line);border-top:3px solid var(--pc,var(--aqua));
+  background:var(--deep);text-align:center;display:flex;flex-direction:column;align-items:center;gap:4px}
+.sc.lead{box-shadow:inset 0 0 0 1px var(--pc)}
+.sc.lead .sc-n{color:var(--pc)}
+.av{display:inline-flex;align-items:center;justify-content:center;border-radius:50%;background:var(--pc,var(--aqua));color:#08232a;
+  font-weight:800;overflow:hidden;flex:none;border:2px solid var(--pc,var(--aqua))}
+.av img{width:100%;height:100%;object-fit:cover;display:block}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--pc);margin-right:7px}
+#profileBtn{background:none;border:0;padding:0;line-height:0}
+#swatches{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.sw{aspect-ratio:1;border-radius:14px;border:2px solid transparent;background:var(--pc);color:#08232a;font-size:22px;font-weight:800}
+.sw.on{border-color:#fff;box-shadow:0 0 0 3px var(--deep) inset}
+.sw.on::after{content:"✓"}
 .sc-n{font-size:30px;font-weight:800;line-height:1.1}
 .sc-name{color:var(--muted);font-size:14px;margin-top:2px}
 .me-dot{width:16px;height:16px;border-radius:50%;background:var(--amber);border:3px solid #fff;box-shadow:0 0 0 6px rgba(240,180,76,.3)}
@@ -154,7 +166,7 @@ dt{color:var(--muted)} dd{margin:0}
 
 <!-- APP -->
 <div id="app" class="hidden">
-  <header><b>Glass Block Map</b><button id="signOut">Sign out</button></header>
+  <header><b>Glass Block Map</b><button id="profileBtn" aria-label="Your profile"></button></header>
   <div id="views">
     <section class="view" id="view-home">
       <button id="tagBtn">Tag a block</button>
@@ -219,6 +231,26 @@ dt{color:var(--muted)} dd{margin:0}
   </div>
 </div>
 
+<!-- PROFILE SHEET -->
+<div class="backdrop" id="profBackdrop"></div>
+<div class="sheet" id="profSheet">
+  <h2>Your profile</h2>
+  <div style="display:flex;align-items:center;gap:16px;margin:14px 0 20px">
+    <div id="profAv" style="line-height:0"></div>
+    <div>
+      <button type="button" class="photo-btn" id="avBtn" style="width:auto;padding:10px 16px">Change photo</button>
+      <input type="file" id="avInput" accept="image/*" class="hidden">
+    </div>
+  </div>
+  <div class="field"><label for="profName">Name</label><input id="profName" type="text" maxlength="30"></div>
+  <div class="field"><span>Colour: <b id="swName" style="color:var(--frost)"></b></span><div id="swatches"></div></div>
+  <div class="row">
+    <button class="ghost" id="profCancel">Cancel</button>
+    <button class="primary" id="profSave">Save profile</button>
+  </div>
+  <button class="ghost danger" id="signOut" style="width:100%;margin-top:12px">Sign out</button>
+</div>
+
 <div id="toast"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
@@ -234,11 +266,17 @@ const OPTIONS = {
   building_type: ["Residential", "Commercial", "Public / other"]
 };
 
+const PALETTE = [
+  { n: "Aqua", c: "#62d6c8" }, { n: "Sky", c: "#6db5ff" }, { n: "Violet", c: "#a393f7" }, { n: "Orchid", c: "#ee8fd0" },
+  { n: "Coral", c: "#ff8a80" }, { n: "Amber", c: "#f0b44c" }, { n: "Lime", c: "#b9e35f" }, { n: "Sand", c: "#e4d3a8" }
+];
+
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 let user = null, myName = "", map = null, markerLayer = null, meMarker = null;
+let profiles = {}, avatarUrls = {}, tagNames = {};
 let rows = [], current = null, here = null, photoBlob = null, picked = {};
 let editing = null, editLoc = null, moveMarker = null;
 
@@ -253,11 +291,25 @@ function show(id){ ["login","nameBox","app"].forEach(x => $(x).classList.toggle(
 async function route(){
   const { data } = await sb.auth.getSession();
   user = data.session ? data.session.user : null;
-  if (!user) return show("login");
-  myName = (user.user_metadata && user.user_metadata.name) || "";
-  if (!myName) return show("nameBox");
+  if (!user) { profiles = {}; return show("login"); }
+  await loadProfiles();
+  if (!profiles[user.id]) {
+    const nm = user.user_metadata && user.user_metadata.name;
+    if (!nm) return show("nameBox");
+    await createProfile(nm);
+  }
+  myName = (profiles[user.id] && profiles[user.id].name) || (user.user_metadata && user.user_metadata.name) || "Me";
   show("app");
-  refreshCount();
+  updateAvatarBtn();
+  refreshAll(false);
+}
+
+async function createProfile(name){
+  const used = Object.values(profiles).map(p => p.colour);
+  const free = PALETTE.find(o => !used.includes(o.c)) || PALETTE[0];
+  const { data, error } = await sb.from("profiles").insert({ user_id: user.id, name, colour: free.c }).select().single();
+  if (error) { console.error(error); return false; }
+  profiles[user.id] = data; return true;
 }
 
 $("loginForm").addEventListener("submit", async e => {
@@ -272,12 +324,9 @@ $("loginForm").addEventListener("submit", async e => {
 $("nameSave").addEventListener("click", async () => {
   const n = $("nameInput").value.trim();
   if (!n) return;
-  const { error } = await sb.auth.updateUser({ data: { name: n } });
-  if (error) { toast("Couldn't save your name. Try again."); return; }
+  if (!(await createProfile(n))) { toast("Couldn't save your name. Try again."); return; }
   route();
 });
-
-$("signOut").addEventListener("click", async () => { await sb.auth.signOut(); route(); });
 
 /* ---------- navigation & data ---------- */
 function showView(name){
@@ -295,24 +344,55 @@ $("navList").onclick = () => showView("list");
 async function loadRows(){
   const { data, error } = await sb.from("glass_blocks").select("*").order("created_at", { ascending: false });
   if (error) { toast("Couldn't load the tags."); return false; }
-  rows = data; return true;
+  rows = data; tagNames = {};
+  rows.forEach(r => { if (!tagNames[r.user_id]) tagNames[r.user_id] = r.tagged_by; });
+  return true;
 }
 async function refreshAll(fit){
-  if (!(await loadRows())) return;
+  const [ok] = await Promise.all([loadRows(), loadProfiles()]);
+  if (!ok) return;
+  updateAvatarBtn();
   renderScore(); renderList();
   if (map) renderMarkers(fit);
 }
 function refreshCount(){ return refreshAll(false); }
 
+/* ---------- profiles ---------- */
+const colourOf = id => { const c = profiles[id] && profiles[id].colour; return /^#[0-9a-f]{6}$/i.test(c || "") ? c : PALETTE[0].c; };
+const nameOf = (id, fb) => (profiles[id] && profiles[id].name) || fb || tagNames[id] || "Someone";
+const avatarUrlOf = id => { const p = profiles[id], c = p && p.avatar_path && avatarUrls[p.avatar_path]; return c ? c.url : null; };
+
+function avatarHTML(id, size, o = {}){
+  const c = o.colour || colourOf(id), nm = o.name || nameOf(id);
+  const url = o.url !== undefined ? o.url : avatarUrlOf(id);
+  const inner = url ? `<img src="${esc(url)}" alt="">` : esc((nm || "?").trim().charAt(0).toUpperCase());
+  return `<span class="av" style="--pc:${c};width:${size}px;height:${size}px;font-size:${Math.round(size * 0.45)}px">${inner}</span>`;
+}
+function updateAvatarBtn(){ if (user) $("profileBtn").innerHTML = avatarHTML(user.id, 34); }
+
+async function loadProfiles(){
+  const { data, error } = await sb.from("profiles").select("*");
+  if (error) { console.error(error); return; }
+  profiles = {}; data.forEach(p => { profiles[p.user_id] = p; });
+  const now = Date.now();
+  const need = Object.values(profiles).map(p => p.avatar_path)
+    .filter(path => path && (!avatarUrls[path] || now - avatarUrls[path].t > 30 * 60000));
+  if (!need.length) return;
+  const res = await sb.storage.from("photos").createSignedUrls(need, 3600);
+  (res.data || []).forEach(d => { if (d.signedUrl) avatarUrls[d.path] = { url: d.signedUrl, t: now }; });
+}
+
+/* ---------- scoreboard ---------- */
 function renderScore(){
   const counts = {};
-  rows.forEach(r => { counts[r.tagged_by] = (counts[r.tagged_by] || 0) + 1; });
-  if (myName && !(myName in counts)) counts[myName] = 0;
-  const arr = Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  rows.forEach(r => { counts[r.user_id] = (counts[r.user_id] || 0) + 1; });
+  Object.keys(profiles).forEach(id => { if (!(id in counts)) counts[id] = 0; });
+  if (user && !(user.id in counts)) counts[user.id] = 0;
+  const arr = Object.entries(counts).sort((a, b) => b[1] - a[1] || nameOf(a[0]).localeCompare(nameOf(b[0])));
   const top = arr.length > 1 && arr[0][1] > arr[1][1] ? arr[0][0] : null;
   $("count").innerHTML = `<strong>${rows.length}</strong><br>${rows.length === 1 ? "block" : "blocks"} found so far`;
-  $("score").innerHTML = arr.slice(0, 4).map(([n, c]) =>
-    `<div class="sc${n === top ? " lead" : ""}"><div class="sc-n">${c}</div><div class="sc-name">${esc(n)}</div></div>`).join("");
+  $("score").innerHTML = arr.slice(0, 4).map(([id, c]) =>
+    `<div class="sc${id === top ? " lead" : ""}" style="--pc:${colourOf(id)}">${avatarHTML(id, 34)}<div class="sc-n">${c}</div><div class="sc-name">${esc(nameOf(id))}</div></div>`).join("");
 }
 
 /* ---------- list ---------- */
@@ -323,18 +403,21 @@ const fmtWhen = iso => {
   return d.toLocaleString([], o);
 };
 function renderList(){
-  const names = [...new Set(rows.map(r => r.tagged_by))]
-    .sort((a, b) => a === myName ? -1 : b === myName ? 1 : a.localeCompare(b));
-  if (listFilter !== "All" && !names.includes(listFilter)) listFilter = "All";
-  $("listTabs").innerHTML = ["All", ...names].map(t => {
-    const n = t === "All" ? rows.length : rows.filter(r => r.tagged_by === t).length;
-    return `<button type="button" class="chip${t === listFilter ? " on" : ""}" data-t="${esc(t)}">${esc(t)} (${n})</button>`;
+  const mine = user ? user.id : null;
+  const ids = [...new Set(rows.map(r => r.user_id))]
+    .sort((a, b) => a === mine ? -1 : b === mine ? 1 : nameOf(a).localeCompare(nameOf(b)));
+  if (listFilter !== "All" && !ids.includes(listFilter)) listFilter = "All";
+  $("listTabs").innerHTML = ["All", ...ids].map(t => {
+    const n = t === "All" ? rows.length : rows.filter(r => r.user_id === t).length;
+    const label = t === "All" ? "All" : `<span class="dot" style="--pc:${colourOf(t)}"></span>${esc(nameOf(t))}`;
+    return `<button type="button" class="chip${t === listFilter ? " on" : ""}" data-t="${esc(t)}">${label} (${n})</button>`;
   }).join("");
-  const list = listFilter === "All" ? rows : rows.filter(r => r.tagged_by === listFilter);
+  const list = listFilter === "All" ? rows : rows.filter(r => r.user_id === listFilter);
   const by = listFilter === "All";
   if (!list.length) { $("tbl").innerHTML = '<tr><td class="empty">No tags here yet.</td></tr>'; return; }
   $("tbl").innerHTML = `<thead><tr><th>When</th>${by ? "<th>By</th>" : ""}<th>Type</th><th>Colour</th><th>Building</th><th>Photo</th><th>Notes</th></tr></thead><tbody>` +
-    list.map(r => `<tr class="r" data-id="${esc(r.id)}"><td>${esc(fmtWhen(r.created_at))}</td>${by ? `<td>${esc(r.tagged_by)}</td>` : ""}` +
+    list.map(r => `<tr class="r" data-id="${esc(r.id)}"><td>${esc(fmtWhen(r.created_at))}</td>` +
+      (by ? `<td><span class="dot" style="--pc:${colourOf(r.user_id)}"></span>${esc(nameOf(r.user_id, r.tagged_by))}</td>` : "") +
       `<td>${esc(r.block_type || "–")}</td><td>${esc(r.colour || "–")}</td><td>${esc(r.building_type || "–")}</td>` +
       `<td>${r.photo_path ? "Yes" : "–"}</td><td class="notes">${esc(r.notes || "")}</td></tr>`).join("") + "</tbody>";
 }
@@ -522,7 +605,7 @@ function renderMarkers(fit){
   markerLayer.clearLayers();
   const pts = [];
   rows.forEach(r => {
-    const m = L.marker([r.lat, r.lng], { icon: L.divIcon({ className: "", html: '<div class="gb-pin"></div>', iconSize: [26, 26], iconAnchor: [13, 13] }) });
+    const m = L.marker([r.lat, r.lng], { icon: L.divIcon({ className: "", html: `<div class="gb-pin" style="--pc:${colourOf(r.user_id)}"></div>`, iconSize: [26, 26], iconAnchor: [13, 13] }) });
     m.on("click", () => { if (!moveMarker) openDetail(r); });
     m.addTo(markerLayer); pts.push([r.lat, r.lng]);
   });
@@ -543,7 +626,7 @@ async function openDetail(r){
   current = r;
   const when = new Date(r.created_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
   $("detailTitle").textContent = "Glass block";
-  const items = [["Tagged by", r.tagged_by], ["When", when], ["Type", r.block_type], ["Colour", r.colour], ["Building", r.building_type], ["Notes", r.notes]];
+  const items = [["Tagged by", nameOf(r.user_id, r.tagged_by)], ["When", when], ["Type", r.block_type], ["Colour", r.colour], ["Building", r.building_type], ["Notes", r.notes]];
   $("detailList").innerHTML = items.filter(i => i[1]).map(i => `<dt>${esc(i[0])}</dt><dd>${esc(i[1])}</dd>`).join("") +
     `<dt>Place</dt><dd><a style="color:var(--aqua)" target="_blank" rel="noopener" href="https://www.google.com/maps?q=${r.lat},${r.lng}">Open in Maps</a></dd>`;
   const img = $("detailPhoto"); img.classList.add("hidden"); img.removeAttribute("src");
@@ -563,6 +646,77 @@ $("detailDelete").addEventListener("click", async () => {
   if (error) { toast("Couldn't delete it."); return; }
   closeSheet("detail"); toast("Deleted"); refreshAll(false);
 });
+
+/* ---------- profile editor ---------- */
+let draft = null, avatarBlob = null;
+
+async function shrinkSquare(file, size){
+  const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+  const side = Math.min(bmp.width, bmp.height);
+  const c = document.createElement("canvas"); c.width = c.height = size;
+  c.getContext("2d").drawImage(bmp, (bmp.width - side) / 2, (bmp.height - side) / 2, side, side, 0, 0, size, size);
+  return new Promise((res, rej) => c.toBlob(b => b ? res(b) : rej(), "image/jpeg", 0.85));
+}
+
+function renderProfPreview(){
+  const url = avatarBlob ? URL.createObjectURL(avatarBlob) : avatarUrlOf(user.id);
+  $("profAv").innerHTML = avatarHTML(user.id, 84, { colour: draft.colour, name: $("profName").value || draft.name, url });
+}
+function renderSwatches(){
+  $("swatches").innerHTML = PALETTE.map(o =>
+    `<button type="button" class="sw${o.c === draft.colour ? " on" : ""}" data-c="${o.c}" style="--pc:${o.c}" aria-label="${o.n}" title="${o.n}"></button>`).join("");
+  const cur = PALETTE.find(o => o.c === draft.colour);
+  $("swName").textContent = cur ? cur.n : "";
+}
+
+$("profileBtn").addEventListener("click", () => {
+  draft = { name: myName, colour: colourOf(user.id) };
+  avatarBlob = null; $("avInput").value = "";
+  $("profName").value = draft.name;
+  renderSwatches(); renderProfPreview();
+  openSheet("prof");
+});
+$("swatches").addEventListener("click", e => {
+  const b = e.target.closest(".sw"); if (!b) return;
+  draft.colour = b.dataset.c; renderSwatches(); renderProfPreview();
+});
+$("profName").addEventListener("input", renderProfPreview);
+$("avBtn").onclick = () => $("avInput").click();
+$("avInput").addEventListener("change", async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try { avatarBlob = await shrinkSquare(f, 320); renderProfPreview(); }
+  catch (err) { toast("Couldn't read that photo."); }
+});
+$("profCancel").onclick = () => closeSheet("prof");
+$("profBackdrop").onclick = () => closeSheet("prof");
+
+$("profSave").addEventListener("click", async () => {
+  const name = $("profName").value.trim();
+  if (!name) { toast("Please enter a name."); return; }
+  $("profSave").disabled = true; $("profSave").textContent = "Saving…";
+  try {
+    const old = profiles[user.id] ? profiles[user.id].avatar_path : null;
+    let avatar_path = old || null;
+    if (avatarBlob) {
+      avatar_path = `avatars/${user.id}-${Date.now()}.jpg`;
+      const up = await sb.storage.from("photos").upload(avatar_path, avatarBlob, { contentType: "image/jpeg" });
+      if (up.error) throw up.error;
+    }
+    const { data, error } = await sb.from("profiles")
+      .upsert({ user_id: user.id, name, colour: draft.colour, avatar_path, updated_at: new Date().toISOString() })
+      .select().single();
+    if (error) throw error;
+    if (avatarBlob && old) await sb.storage.from("photos").remove([old]);
+    profiles[user.id] = data; myName = data.name;
+    await loadProfiles();
+    closeSheet("prof"); toast("Profile saved"); refreshAll(false);
+  } catch (err) {
+    console.error(err); toast("Couldn't save your profile. Try again.");
+  }
+  $("profSave").textContent = "Save profile"; $("profSave").disabled = false;
+});
+
+$("signOut").addEventListener("click", async () => { closeSheet("prof"); await sb.auth.signOut(); route(); });
 
 sb.auth.onAuthStateChange(() => {});
 route();
