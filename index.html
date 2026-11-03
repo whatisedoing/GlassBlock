@@ -73,6 +73,12 @@ header button{background:none;border:0;color:var(--muted);font-size:14px}
   background:var(--ink);color:var(--frost);font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.35)}
 .gb-pin{width:26px;height:26px;border-radius:7px;border:2px solid #fff;
   background:linear-gradient(145deg,#a8f3ea,#2a9d92);box-shadow:0 3px 10px rgba(0,0,0,.45),inset 0 0 0 3px rgba(255,255,255,.25)}
+.gb-pin.move{background:linear-gradient(145deg,#ffd98a,#f0b44c)}
+#moveBar{position:absolute;top:12px;left:58px;right:12px;z-index:1000;display:flex;align-items:center;gap:8px;background:var(--ink);
+  border:1px solid var(--line);border-radius:14px;padding:10px 12px;box-shadow:0 4px 16px rgba(0,0,0,.35)}
+#moveBar span{flex:1;font-size:14px;line-height:1.25}
+#moveBar button{padding:9px 14px;border-radius:10px;border:1px solid var(--line);background:none}
+#moveDone{background:var(--aqua)!important;color:#08232a;border-color:var(--aqua)!important;font-weight:700}
 .me-dot{width:16px;height:16px;border-radius:50%;background:var(--amber);border:3px solid #fff;box-shadow:0 0 0 6px rgba(240,180,76,.3)}
 
 /* nav */
@@ -141,6 +147,7 @@ dt{color:var(--muted)} dd{margin:0}
     </section>
     <section class="view hidden" id="view-map">
       <div id="map"></div>
+      <div id="moveBar" class="hidden"><span>Drag the pin or tap the map</span><button id="moveCancel">Cancel</button><button id="moveDone">Done</button></div>
       <button id="locate">Locate me</button>
     </section>
   </div>
@@ -153,8 +160,16 @@ dt{color:var(--muted)} dd{margin:0}
 <!-- TAG SHEET -->
 <div class="backdrop" id="tagBackdrop"></div>
 <div class="sheet" id="tagSheet">
-  <h2>New glass block</h2>
+  <h2 id="tagTitle">New glass block</h2>
   <div class="status" id="gpsStatus">Finding your location…</div>
+  <div class="field hidden" id="locEdit">
+    <span>Pin location</span>
+    <div id="locText" style="margin-bottom:10px"></div>
+    <div class="row">
+      <button type="button" class="ghost" id="movePin" style="flex:1">Move pin on map</button>
+      <button type="button" class="ghost" id="useMyLoc" style="flex:1">Use my location</button>
+    </div>
+  </div>
   <div class="field"><span>Type</span><div class="chips" data-field="block_type"></div></div>
   <div class="field"><span>Colour</span><div class="chips" data-field="colour"></div></div>
   <div class="field"><span>Building</span><div class="chips" data-field="building_type"></div></div>
@@ -178,6 +193,7 @@ dt{color:var(--muted)} dd{margin:0}
   <dl id="detailList"></dl>
   <div class="row">
     <button class="ghost danger" id="detailDelete">Delete</button>
+    <button class="ghost" id="detailEdit">Edit</button>
     <button class="primary" id="detailClose">Close</button>
   </div>
 </div>
@@ -203,6 +219,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 
 let user = null, myName = "", map = null, markerLayer = null, meMarker = null;
 let rows = [], current = null, here = null, photoBlob = null, picked = {};
+let editing = null, editLoc = null, moveMarker = null;
 
 function toast(msg){
   const t = $("toast"); t.textContent = msg; t.classList.add("show");
@@ -276,6 +293,9 @@ function openSheet(name){ $(name + "Backdrop").classList.add("open"); $(name + "
 function closeSheet(name){ $(name + "Backdrop").classList.remove("open"); $(name + "Sheet").classList.remove("open"); }
 
 $("tagBtn").addEventListener("click", () => {
+  editing = null; editLoc = null;
+  $("tagTitle").textContent = "New glass block"; $("tagSave").textContent = "Save tag";
+  $("locEdit").classList.add("hidden"); $("gpsStatus").classList.remove("hidden");
   here = null; photoBlob = null; picked = {};
   buildChips();
   $("notes").value = ""; $("photoInput").value = "";
@@ -295,6 +315,65 @@ $("tagBtn").addEventListener("click", () => {
 });
 
 function setStatus(t, ok){ const s = $("gpsStatus"); s.textContent = t; s.classList.toggle("ok", !!ok); }
+
+/* ---------- editing ---------- */
+function updateLocText(){
+  const moved = editing && (editLoc.lat !== editing.lat || editLoc.lng !== editing.lng);
+  $("locText").textContent = `${editLoc.lat.toFixed(5)}, ${editLoc.lng.toFixed(5)}` + (moved ? "  (moved)" : "");
+}
+
+function openEdit(r){
+  editing = r; editLoc = { lat: r.lat, lng: r.lng };
+  photoBlob = null; picked = {};
+  ["block_type", "colour", "building_type"].forEach(f => { if (r[f]) picked[f] = r[f]; });
+  buildChips();
+  document.querySelectorAll("#tagSheet .chip").forEach(c => {
+    if (picked[c.parentElement.dataset.field] === c.dataset.v) c.classList.add("on");
+  });
+  $("notes").value = r.notes || ""; $("photoInput").value = "";
+  $("tagTitle").textContent = "Edit glass block";
+  $("gpsStatus").classList.add("hidden");
+  $("locEdit").classList.remove("hidden"); updateLocText();
+  $("tagSave").textContent = "Save changes"; $("tagSave").disabled = false;
+  const pv = $("photoPreview"); pv.classList.add("hidden"); pv.removeAttribute("src");
+  $("photoBtn").textContent = r.photo_path ? "Change photo" : "Add a photo";
+  openSheet("tag");
+  if (r.photo_path) {
+    sb.storage.from("photos").createSignedUrl(r.photo_path, 3600).then(({ data }) => {
+      if (data && editing === r && !photoBlob) { pv.src = data.signedUrl; pv.classList.remove("hidden"); }
+    });
+  }
+}
+
+$("movePin").onclick = () => {
+  closeSheet("tag");
+  moveMarker = L.marker([editLoc.lat, editLoc.lng], {
+    draggable: true, zIndexOffset: 1000,
+    icon: L.divIcon({ className: "", html: '<div class="gb-pin move"></div>', iconSize: [26, 26], iconAnchor: [13, 13] })
+  }).addTo(map);
+  map.setView([editLoc.lat, editLoc.lng], Math.max(map.getZoom(), 18));
+  map.on("click", onMoveClick);
+  $("moveBar").classList.remove("hidden");
+};
+function onMoveClick(e){ if (moveMarker) moveMarker.setLatLng(e.latlng); }
+function endMove(apply){
+  if (apply && moveMarker) { const p = moveMarker.getLatLng(); editLoc = { lat: p.lat, lng: p.lng }; updateLocText(); }
+  if (moveMarker) { moveMarker.remove(); moveMarker = null; }
+  map.off("click", onMoveClick);
+  $("moveBar").classList.add("hidden");
+  openSheet("tag");
+}
+$("moveDone").onclick = () => endMove(true);
+$("moveCancel").onclick = () => endMove(false);
+
+$("useMyLoc").onclick = () => {
+  if (!navigator.geolocation) return toast("This browser can't share location.");
+  const b = $("useMyLoc"); b.textContent = "Locating…";
+  navigator.geolocation.getCurrentPosition(p => {
+    editLoc = { lat: p.coords.latitude, lng: p.coords.longitude }; updateLocText(); b.textContent = "Use my location";
+  }, () => { toast("Couldn't get your location."); b.textContent = "Use my location"; },
+  { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+};
 
 $("tagCancel").onclick = () => closeSheet("tag");
 $("tagBackdrop").onclick = () => closeSheet("tag");
@@ -319,7 +398,8 @@ async function shrink(file){
 }
 
 $("tagSave").addEventListener("click", async () => {
-  if (!here) return;
+  if (!editing && !here) return;
+  const label = editing ? "Save changes" : "Save tag";
   $("tagSave").disabled = true; $("tagSave").textContent = "Saving…";
   try {
     let photo_path = null;
@@ -328,22 +408,33 @@ $("tagSave").addEventListener("click", async () => {
       const up = await sb.storage.from("photos").upload(photo_path, photoBlob, { contentType: "image/jpeg" });
       if (up.error) throw up.error;
     }
-    const { error } = await sb.from("glass_blocks").insert({
-      tagged_by: myName, lat: here.lat, lng: here.lng,
+    const fields = {
       block_type: picked.block_type || null, colour: picked.colour || null,
-      building_type: picked.building_type || null,
-      notes: $("notes").value.trim() || null, photo_path
-    });
-    if (error) throw error;
-    closeSheet("tag"); toast("Tagged!"); refreshCount();
+      building_type: picked.building_type || null, notes: $("notes").value.trim() || null
+    };
+    if (editing) {
+      const upd = { ...fields, lat: editLoc.lat, lng: editLoc.lng };
+      if (photo_path) upd.photo_path = photo_path;
+      const { data, error } = await sb.from("glass_blocks").update(upd).eq("id", editing.id).select();
+      if (error) throw error;
+      if (!data || !data.length) throw new Error("No rows updated");
+      if (photo_path && editing.photo_path) await sb.storage.from("photos").remove([editing.photo_path]);
+      closeSheet("tag"); toast("Changes saved"); editing = null; openMap(true);
+    } else {
+      const { error } = await sb.from("glass_blocks").insert({
+        tagged_by: myName, lat: here.lat, lng: here.lng, ...fields, photo_path
+      });
+      if (error) throw error;
+      closeSheet("tag"); toast("Tagged!"); refreshCount();
+    }
   } catch (err) {
     console.error(err); toast("Couldn't save. Check your connection and try again.");
   }
-  $("tagSave").textContent = "Save tag"; $("tagSave").disabled = false;
+  $("tagSave").textContent = label; $("tagSave").disabled = false;
 });
 
 /* ---------- map ---------- */
-async function openMap(){
+async function openMap(keepView){
   if (!map) {
     map = L.map("map", { zoomControl: true }).setView([START_VIEW.lat, START_VIEW.lng], START_VIEW.zoom);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -358,10 +449,10 @@ async function openMap(){
   const pts = [];
   rows.forEach(r => {
     const m = L.marker([r.lat, r.lng], { icon: L.divIcon({ className: "", html: '<div class="gb-pin"></div>', iconSize: [26, 26], iconAnchor: [13, 13] }) });
-    m.on("click", () => openDetail(r));
+    m.on("click", () => { if (!moveMarker) openDetail(r); });
     m.addTo(markerLayer); pts.push([r.lat, r.lng]);
   });
-  if (pts.length) map.fitBounds(pts, { padding: [50, 50], maxZoom: 17 });
+  if (pts.length && !keepView) map.fitBounds(pts, { padding: [50, 50], maxZoom: 17 });
 }
 
 $("locate").addEventListener("click", () => {
@@ -389,13 +480,14 @@ async function openDetail(r){
   }
 }
 $("detailClose").onclick = () => closeSheet("detail");
+$("detailEdit").onclick = () => { if (!current) return; closeSheet("detail"); openEdit(current); };
 $("detailBackdrop").onclick = () => closeSheet("detail");
 $("detailDelete").addEventListener("click", async () => {
   if (!current || !confirm("Delete this tag? This can't be undone.")) return;
   if (current.photo_path) await sb.storage.from("photos").remove([current.photo_path]);
   const { error } = await sb.from("glass_blocks").delete().eq("id", current.id);
   if (error) { toast("Couldn't delete it."); return; }
-  closeSheet("detail"); toast("Deleted"); openMap();
+  closeSheet("detail"); toast("Deleted"); openMap(true);
 });
 
 sb.auth.onAuthStateChange(() => {});
