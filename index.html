@@ -63,7 +63,7 @@ header button{background:none;border:0;color:var(--muted);font-size:14px}
 
 /* map */
 #map{position:absolute;inset:0;background:var(--ink)}
-.leaflet-tile-pane{filter:sepia(.55) hue-rotate(128deg) saturate(1.5) brightness(1.1)}
+.leaflet-tile-pane{filter:invert(1) grayscale(1) brightness(.85) contrast(1.15) sepia(.6) hue-rotate(128deg) saturate(1.6)}
 .leaflet-bar{border:1px solid var(--line)!important;box-shadow:0 4px 16px rgba(0,0,0,.35)!important}
 .leaflet-bar a,.leaflet-bar a:hover{background:var(--ink);color:var(--frost);border-bottom-color:var(--line)}
 .leaflet-bar a:hover{background:var(--deep)}
@@ -346,9 +346,8 @@ $("tagSave").addEventListener("click", async () => {
 async function openMap(){
   if (!map) {
     map = L.map("map", { zoomControl: true }).setView([START_VIEW.lat, START_VIEW.lng], START_VIEW.zoom);
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-      maxZoom: 19, subdomains: "abcd",
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
     }).addTo(map);
     markerLayer = L.layerGroup().addTo(map);
   }
