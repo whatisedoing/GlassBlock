@@ -46,9 +46,9 @@ header button{background:none;border:0;color:var(--muted);font-size:14px}
 .view{position:absolute;inset:0}
 
 /* home */
-#view-home{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;padding:20px}
+#view-home{display:flex;flex-direction:column;align-items:center;justify-content:safe center;gap:16px;padding:16px 20px;overflow-y:auto}
 #tagBtn{
-  width:min(68vw,280px);aspect-ratio:1;border-radius:14%;border:1px solid rgba(255,255,255,.35);position:relative;
+  width:min(62vw,250px);aspect-ratio:1;flex:none;border-radius:14%;border:1px solid rgba(255,255,255,.35);position:relative;
   background:linear-gradient(145deg,rgba(150,240,230,.75),rgba(42,157,146,.45) 55%,rgba(20,90,100,.6));
   box-shadow:inset 0 0 0 10px rgba(255,255,255,.07),inset 0 0 0 11px rgba(255,255,255,.28),
              inset 10px 14px 30px rgba(255,255,255,.35),inset -14px -18px 34px rgba(0,40,50,.45),
@@ -139,7 +139,15 @@ dt{color:var(--muted)} dd{margin:0}
 #toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%) translateY(20px);background:var(--frost);color:var(--ink);
   padding:12px 18px;border-radius:12px;font-weight:600;z-index:3000;opacity:0;transition:.25s;pointer-events:none;max-width:86vw;text-align:center}
 #toast.show{opacity:1;transform:translateX(-50%)}
-@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+@keyframes pulse{50%{opacity:.55}}
+#tagBtn.busy{animation:pulse 1s ease-in-out infinite;pointer-events:none}
+.seg{display:flex;background:var(--deep);border:1px solid var(--line);border-radius:999px;padding:4px}
+.seg button{background:none;border:0;padding:9px 22px;border-radius:999px;color:var(--muted);font-weight:600}
+.seg button.on{background:var(--aqua);color:#08232a}
+#sessionBar{display:flex;align-items:center;gap:14px;background:var(--deep);border:1px solid var(--line);border-radius:14px;padding:10px 10px 10px 16px}
+#sessionBar span{font-weight:600}
+#sessionBar button{padding:10px 16px;border-radius:10px;border:0;background:var(--aqua);color:#08232a;font-weight:800}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
 <body>
@@ -169,7 +177,9 @@ dt{color:var(--muted)} dd{margin:0}
   <header><b>Glass Block Map</b><button id="profileBtn" aria-label="Your profile"></button></header>
   <div id="views">
     <section class="view" id="view-home">
+      <div class="seg" id="modeToggle"><button type="button" data-m="simple">Simple</button><button type="button" data-m="detailed">Detailed</button></div>
       <button id="tagBtn">Tag a block</button>
+      <div id="sessionBar" class="hidden"><span id="sessionText"></span><button type="button" id="doneBtn">Done tagging</button></div>
       <div id="count"></div>
       <div id="score"></div>
     </section>
@@ -231,6 +241,15 @@ dt{color:var(--muted)} dd{margin:0}
   </div>
 </div>
 
+<!-- DONE TAGGING SHEET -->
+<div class="backdrop" id="doneBackdrop"></div>
+<div class="sheet" id="doneSheet">
+  <h2>Done tagging?</h2>
+  <p id="doneText" style="color:var(--muted);margin:6px 0 18px;line-height:1.45"></p>
+  <button class="primary" id="doneAdd" style="margin-bottom:10px">Add details now</button>
+  <button class="ghost" id="doneSkip" style="width:100%">Skip, keep them as they are</button>
+</div>
+
 <!-- PROFILE SHEET -->
 <div class="backdrop" id="profBackdrop"></div>
 <div class="sheet" id="profSheet">
@@ -277,6 +296,35 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 
 let user = null, myName = "", map = null, markerLayer = null, meMarker = null;
 let profiles = {}, avatarUrls = {}, tagNames = {};
+let mode = "detailed", sessionIds = [], review = null, quickBusy = false;
+
+const store = {
+  get(k){ try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v){ try { localStorage.setItem(k, v); } catch { /* storage unavailable */ } }
+};
+const sessionKey = () => "gb_session_" + (user ? user.id : "");
+function loadSession(){
+  try { const a = JSON.parse(store.get(sessionKey()) || "[]"); sessionIds = Array.isArray(a) ? a : []; }
+  catch { sessionIds = []; }
+}
+function saveSession(){ store.set(sessionKey(), JSON.stringify(sessionIds)); }
+function renderSession(){
+  const n = sessionIds.length;
+  $("sessionBar").classList.toggle("hidden", n === 0);
+  $("sessionText").textContent = `${n} ${n === 1 ? "tag" : "tags"} this session`;
+}
+function removeFromSession(id){ sessionIds = sessionIds.filter(x => x !== id); saveSession(); renderSession(); }
+
+function paintMode(){
+  document.querySelectorAll("#modeToggle button").forEach(b => b.classList.toggle("on", b.dataset.m === mode));
+}
+$("modeToggle").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  mode = b.dataset.m; store.set("gb_mode", mode); paintMode();
+  toast(mode === "simple" ? "Simple mode: one tap saves your spot" : "Detailed mode: add info as you tag");
+});
+mode = store.get("gb_mode") === "simple" ? "simple" : "detailed";
+paintMode();
 let rows = [], current = null, here = null, photoBlob = null, picked = {};
 let editing = null, editLoc = null, moveMarker = null;
 
@@ -291,7 +339,7 @@ function show(id){ ["login","nameBox","app"].forEach(x => $(x).classList.toggle(
 async function route(){
   const { data } = await sb.auth.getSession();
   user = data.session ? data.session.user : null;
-  if (!user) { profiles = {}; return show("login"); }
+  if (!user) { profiles = {}; sessionIds = []; return show("login"); }
   await loadProfiles();
   if (!profiles[user.id]) {
     const nm = user.user_metadata && user.user_metadata.name;
@@ -299,6 +347,7 @@ async function route(){
     await createProfile(nm);
   }
   myName = (profiles[user.id] && profiles[user.id].name) || (user.user_metadata && user.user_metadata.name) || "Me";
+  loadSession(); renderSession();
   show("app");
   updateAvatarBtn();
   refreshAll(false);
@@ -448,7 +497,9 @@ function openSheet(name){ $(name + "Backdrop").classList.add("open"); $(name + "
 function closeSheet(name){ $(name + "Backdrop").classList.remove("open"); $(name + "Sheet").classList.remove("open"); }
 
 $("tagBtn").addEventListener("click", () => {
-  editing = null; editLoc = null;
+  if (mode === "simple") { quickTag(); return; }
+  editing = null; editLoc = null; review = null;
+  $("tagCancel").textContent = "Cancel";
   $("tagTitle").textContent = "New glass block"; $("tagSave").textContent = "Save tag";
   $("locEdit").classList.add("hidden"); $("gpsStatus").classList.remove("hidden");
   here = null; photoBlob = null; picked = {};
@@ -471,6 +522,66 @@ $("tagBtn").addEventListener("click", () => {
 
 function setStatus(t, ok){ const s = $("gpsStatus"); s.textContent = t; s.classList.toggle("ok", !!ok); }
 
+/* ---------- simple mode ---------- */
+async function quickTag(){
+  if (quickBusy) return;
+  if (!navigator.geolocation) { toast("This browser can't share location."); return; }
+  quickBusy = true;
+  const btn = $("tagBtn"); btn.classList.add("busy"); btn.textContent = "Locating…";
+  try {
+    const pos = await new Promise((res, rej) =>
+      navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }));
+    const { data, error } = await sb.from("glass_blocks")
+      .insert({ tagged_by: myName, lat: pos.coords.latitude, lng: pos.coords.longitude }).select().single();
+    if (error) throw error;
+    sessionIds.push(data.id); saveSession(); renderSession();
+    if (navigator.vibrate) navigator.vibrate(40);
+    toast(`Tagged! ${sessionIds.length} this session`);
+    refreshAll(false);
+  } catch (err) {
+    toast(err && err.code === 1 ? "Location is blocked. Allow it in your browser settings."
+        : err && err.code ? "Couldn't get your location. Try again." : "Couldn't save the tag. Check your connection.");
+  }
+  btn.classList.remove("busy"); btn.textContent = "Tag a block"; quickBusy = false;
+}
+
+$("doneBtn").addEventListener("click", () => {
+  const n = sessionIds.length;
+  $("doneText").textContent = `${n} ${n === 1 ? "tag is" : "tags are"} saved. Want to add type, colour, photos and notes? You can also edit any tag later from the Map or List.`;
+  openSheet("done");
+});
+$("doneBackdrop").onclick = () => closeSheet("done");
+$("doneSkip").addEventListener("click", () => {
+  const n = sessionIds.length;
+  sessionIds = []; saveSession(); renderSession(); closeSheet("done");
+  toast(`Done! ${n} ${n === 1 ? "tag" : "tags"} saved`);
+});
+$("doneAdd").addEventListener("click", async () => {
+  closeSheet("done");
+  const { data, error } = await sb.from("glass_blocks").select("*").in("id", sessionIds).order("created_at", { ascending: true });
+  if (error) { toast("Couldn't load your tags."); return; }
+  if (!data.length) { sessionIds = []; saveSession(); renderSession(); return; }
+  review = { queue: data, i: 0 };
+  openEdit(data[0]);
+});
+
+function saveLabel(){
+  if (review) return review.i === review.queue.length - 1 ? "Save & finish" : "Save & next";
+  return editing ? "Save changes" : "Save tag";
+}
+function advanceReview(){
+  removeFromSession(review.queue[review.i].id);
+  review.i++;
+  if (review.i >= review.queue.length) {
+    review = null; editing = null; closeSheet("tag"); toast("All done!"); refreshAll(false); return;
+  }
+  openEdit(review.queue[review.i]);
+}
+function endReview(){
+  review = null; editing = null; closeSheet("tag");
+  toast("Saved for later. Tap Done tagging to continue."); refreshAll(false);
+}
+
 /* ---------- editing ---------- */
 function updateLocText(){
   const moved = editing && (editLoc.lat !== editing.lat || editLoc.lng !== editing.lng);
@@ -486,10 +597,12 @@ function openEdit(r){
     if (picked[c.parentElement.dataset.field] === c.dataset.v) c.classList.add("on");
   });
   $("notes").value = r.notes || ""; $("photoInput").value = "";
-  $("tagTitle").textContent = "Edit glass block";
-  $("gpsStatus").classList.add("hidden");
+  $("tagTitle").textContent = review ? `Add details · ${review.i + 1} of ${review.queue.length}` : "Edit glass block";
+  $("tagCancel").textContent = review ? "Skip" : "Cancel";
+  if (review) { $("gpsStatus").classList.remove("hidden"); setStatus(`Tagged ${fmtWhen(r.created_at)}`, true); }
+  else $("gpsStatus").classList.add("hidden");
   $("locEdit").classList.remove("hidden"); updateLocText();
-  $("tagSave").textContent = "Save changes"; $("tagSave").disabled = false;
+  $("tagSave").textContent = saveLabel(); $("tagSave").disabled = false;
   const pv = $("photoPreview"); pv.classList.add("hidden"); pv.removeAttribute("src");
   $("photoBtn").textContent = r.photo_path ? "Change photo" : "Add a photo";
   openSheet("tag");
@@ -531,8 +644,8 @@ $("useMyLoc").onclick = () => {
   { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
 };
 
-$("tagCancel").onclick = () => closeSheet("tag");
-$("tagBackdrop").onclick = () => closeSheet("tag");
+$("tagCancel").onclick = () => { if (review) advanceReview(); else closeSheet("tag"); };
+$("tagBackdrop").onclick = () => { if (review) endReview(); else closeSheet("tag"); };
 $("photoBtn").onclick = () => $("photoInput").click();
 $("photoInput").addEventListener("change", async e => {
   const f = e.target.files[0]; if (!f) return;
@@ -555,7 +668,6 @@ async function shrink(file){
 
 $("tagSave").addEventListener("click", async () => {
   if (!editing && !here) return;
-  const label = editing ? "Save changes" : "Save tag";
   $("tagSave").disabled = true; $("tagSave").textContent = "Saving…";
   try {
     let photo_path = null;
@@ -575,7 +687,8 @@ $("tagSave").addEventListener("click", async () => {
       if (error) throw error;
       if (!data || !data.length) throw new Error("No rows updated");
       if (photo_path && editing.photo_path) await sb.storage.from("photos").remove([editing.photo_path]);
-      closeSheet("tag"); toast("Changes saved"); editing = null; refreshAll(false);
+      if (review) advanceReview();
+      else { closeSheet("tag"); toast("Changes saved"); editing = null; refreshAll(false); }
     } else {
       const { error } = await sb.from("glass_blocks").insert({
         tagged_by: myName, lat: here.lat, lng: here.lng, ...fields, photo_path
@@ -586,7 +699,7 @@ $("tagSave").addEventListener("click", async () => {
   } catch (err) {
     console.error(err); toast("Couldn't save. Check your connection and try again.");
   }
-  $("tagSave").textContent = label; $("tagSave").disabled = false;
+  $("tagSave").textContent = saveLabel(); $("tagSave").disabled = false;
 });
 
 /* ---------- map ---------- */
